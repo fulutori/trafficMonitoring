@@ -115,6 +115,7 @@
 		$datasets[$value['device']]['temp_upload'] = $datasets[$value['device']]['temp_upload']+$value['upload'];
 		$datasets[$value['device']]['temp_download'] = $datasets[$value['device']]['temp_download']+$value['download'];
 	}
+	// print_r($datasets);
 	
 	// 最大単位取得
 	$max_unit = "\"".substr(byte_format($max_upload_byte, 0, true), -2, 2)."\"";
@@ -145,7 +146,7 @@
 	
 
 	// y軸のステップ数
-	$step = round($max_download_byte / 10, 0);
+	$step = round($max_download_byte / 7, 0);
 
 
 	// 端末ごとの合計：今日
