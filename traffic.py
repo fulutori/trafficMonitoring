@@ -41,6 +41,7 @@ def get_device():
 
 # 最新のトラフィックデータから対話ログを抽出
 def get_conversations():
+	protocol = ['tcp', 'udp']
 	data_dir = '/mnt/hdd/RoomManager/trafficData/'
 	latest_file = sorted(os.listdir(data_dir), reverse=True)
 	#latest_file = sorted(os.listdir(data_dir+latest_dir), reverse=True)
@@ -52,32 +53,32 @@ def get_conversations():
 		latest_file = latest_file[1]
 	date = '{}'.format(latest_file).replace('.pcap', '')
 	
-
-	cmd = 'tshark -r /mnt/hdd/RoomManager/trafficData/{} -z conv,tcp -q'.format(latest_file)
-	datas = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True).communicate()[0].split(b'\n')[5:-3]
-	
-	shaping_dic = {}
-	for data in datas:
-		temp = data.decode().split()
-		#print(temp)
-		fromIP = re.sub(':[0-9]+$', '', temp[0])
-		toIP = re.sub(':[0-9]+$', '', temp[2])
-		upload = int(temp[6])
-		download = int(temp[4])
-
-		for device in devices:
-			if device[2] == fromIP:
-				#shaping_data.append([date, device[0], fromIP, toIP, size])
-				if device[0] in shaping_dic:
-					shaping_dic[device[0]][0] += upload
-					shaping_dic[device[0]][1] += download
-				else:
-					shaping_dic[device[0]] = [upload, download]
-				break
-
 	shaping_data = []
-	for device in shaping_dic:
-		shaping_data.append([date, device, shaping_dic[device][0], shaping_dic[device][1]])
+	for p in protocol:
+		cmd = 'tshark -r /mnt/hdd/RoomManager/trafficData/{} -z conv,{} -q'.format(latest_file, p)
+		datas = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True).communicate()[0].split(b'\n')[5:-3]
+		
+		shaping_dic = {}
+		for data in datas:
+			temp = data.decode().split()
+			#print(temp)
+			fromIP = re.sub(':[0-9]+$', '', temp[0])
+			toIP = re.sub(':[0-9]+$', '', temp[2])
+			upload = int(temp[6])
+			download = int(temp[4])
+
+			for device in devices:
+				if device[2] == fromIP:
+					#shaping_data.append([date, device[0], fromIP, toIP, size])
+					if device[0] in shaping_dic:
+						shaping_dic[device[0]][0] += upload
+						shaping_dic[device[0]][1] += download
+					else:
+						shaping_dic[device[0]] = [upload, download]
+					break
+
+		for device in shaping_dic:
+			shaping_data.append([date, device, shaping_dic[device][0], shaping_dic[device][1]])
 
 	return shaping_data
 
