@@ -36,28 +36,19 @@
 	$log_date = strtotime(substr($temp_date, 0, 4)."-".substr($temp_date, 4, 2)."-".substr($temp_date, 6, 2)." ".substr($temp_date, 8, 2).":".substr($temp_date, 10, 2));
 	$update_date = strtotime('+10 minute' , $log_date);
 	$last_date = date("Y年m月d日H時i分", $update_date);
+	$ago1day = strtotime('-1 day' , $log_date);
+	$yesterday = date("YmdHi", $ago1day);
+	// echo $yesterday."<br>";
 
 
-	// 最新データから1000件取得
-	$data_sql = $pdo->prepare('SELECT * FROM log GROUP BY date ORDER BY date DESC LIMIT 1000');
-	$data_sql->execute();
-	$data_list = $data_sql->fetchAll(PDO::FETCH_ASSOC);
-
-
-	// データセット初期化
-	$datasets = array();
-	foreach ($device_list as $key => $value) {
-		$datasets[$value['device']] = ['temp_upload'=>0, 'temp_download'=>0, 'upload'=>'', 'download'=>'', 'sum'=>0];
-	}
-
+	// ラベル作成
+	$label_sql = $pdo->prepare('SELECT * FROM log GROUP BY date ORDER BY date DESC LIMIT 3000');
+	$label_sql->execute();
+	$label_list = $label_sql->fetchAll(PDO::FETCH_ASSOC);
 	$labels = "";
 	$tooltips_labels = "";
-	$max_upload_byte = 0;
-	$max_download_byte = 0;
-	$max_sum_byte = 0;
 	$cnt = 0;
-	foreach ($data_list as $key => $value) {
-		// ラベル作成
+	foreach ($label_list as $key => $value) {
 		if (substr($value['date'], -2, 2) == "00") {
 			if ($cnt < 24) {
 				if ($labels !== "") {
@@ -67,48 +58,90 @@
 					$labels = substr($value['date'], 8, 2);
 					$tooltips_labels = substr($value['date'], 8, 2).":\"".substr($value['date'], 4, 2)."月".substr($value['date'], 6, 2)."日".substr($value['date'], 8, 2)."時\"";
 				}
-
-				foreach ($device_list as $devie_key => $device_value) {
-					if ($datasets[$device_value['device']]['temp_download'] < 1048576) {
-						$decimal = 2;
-					} else {
-						$decimal = 1;
-					}
-
-					// 1時間ごとのアップロード、ダウンロードサイズを取得
-					$datasets[$device_value['device']]['upload'] = round($datasets[$device_value['device']]['temp_upload'] / 1048576, $decimal).','.$datasets[$device_value['device']]['upload'];
-					$datasets[$device_value['device']]['download'] = round($datasets[$device_value['device']]['temp_download'] / 1048576, $decimal).','.$datasets[$device_value['device']]['download'];
-					
-					// echo byte_format($datasets[$device_value['device']]['temp_download'], 0, true, true)."<br>";
-
-
-					// アップロードとダウンロードの合計
-					$datasets[$device_value['device']]['sum'] = round(($datasets[$device_value['device']]['temp_upload']+$datasets[$device_value['device']]['temp_download']) / 1048576, $decimal).','.$datasets[$device_value['device']]['sum'];
-
-					// 最大合計サイズ取得
-					if ($datasets[$device_value['device']]['temp_upload']+$datasets[$device_value['device']]['temp_download'] > $max_sum_byte) {
-						$max_sum_byte = $datasets[$device_value['device']]['temp_upload']+$datasets[$device_value['device']]['temp_download'];
-					}
-
-					// 最大アップロードサイズ取得
-					if ($datasets[$device_value['device']]['temp_upload'] > $max_upload_byte) {
-						$max_upload_byte = $datasets[$device_value['device']]['temp_upload'];
-					}
-
-					// 最大ダウンロードサイズ取得
-					if ($datasets[$device_value['device']]['temp_download'] > $max_download_byte) {
-						$max_download_byte = $datasets[$device_value['device']]['temp_download'];
-					}
-
-					// 仮トラフィック量を初期化
-					$datasets[$device_value['device']]['temp_upload'] = 0;
-					$datasets[$device_value['device']]['temp_download'] = 0;
-				}
 			} else {
 				break;
 			}
-
 			$cnt = $cnt+1;
+		}
+	}
+	
+
+
+	// 最新データから1000件取得
+	$data_sql = $pdo->prepare('SELECT date, device, sum(upload) as upload, sum(download) as download FROM log WHERE date > ? GROUP BY date, device ORDER BY date DESC');
+	$data_sql->execute([$yesterday]);
+	$data_list = $data_sql->fetchAll(PDO::FETCH_ASSOC);
+	// print_r($data_list);
+
+
+	// データセット初期化
+	$datasets = array();
+	foreach ($device_list as $key => $value) {
+		$datasets[$value['device']] = ['temp_upload'=>0, 'temp_download'=>0, 'upload'=>'', 'download'=>'', 'sum'=>0];
+	}
+
+	$max_upload_byte = 0;
+	$max_download_byte = 0;
+	$max_sum_byte = 0;
+	$cnt = 0;
+	$add_device = array();
+	foreach ($data_list as $key => $value) {
+		// ラベル作成
+		// echo $value['device']." : ".$value['date']." : ".$value['download']."<br>";
+		// print_r($value);
+		if (substr($value['date'], -2, 2) == "00") {
+			if ($datasets[$value['device']]['temp_download'] < 1048576) {
+				$decimal = 2;
+			} else {
+				$decimal = 1;
+			}
+
+			// 1時間ごとのアップロード、ダウンロードサイズを取得
+			$datasets[$value['device']]['upload'] = round($datasets[$value['device']]['temp_upload'] / 1048576, $decimal).','.$datasets[$value['device']]['upload'];
+			$datasets[$value['device']]['download'] = round($datasets[$value['device']]['temp_download'] / 1048576, $decimal).','.$datasets[$value['device']]['download'];
+			
+			// echo $value['date']." | ".$value['device']." : ".byte_format($datasets[$value['device']]['temp_download'], 0, true)."<br>";
+
+
+			// アップロードとダウンロードの合計
+			$datasets[$value['device']]['sum'] = round(($datasets[$value['device']]['temp_upload']+$datasets[$value['device']]['temp_download']) / 1048576, $decimal).','.$datasets[$value['device']]['sum'];
+
+			// 最大合計サイズ取得
+			if ($datasets[$value['device']]['temp_upload']+$datasets[$value['device']]['temp_download'] > $max_sum_byte) {
+				$max_sum_byte = $datasets[$value['device']]['temp_upload']+$datasets[$value['device']]['temp_download'];
+			}
+
+			// 最大アップロードサイズ取得
+			if ($datasets[$value['device']]['temp_upload'] > $max_upload_byte) {
+				$max_upload_byte = $datasets[$value['device']]['temp_upload'];
+			}
+
+			// 最大ダウンロードサイズ取得
+			if ($datasets[$value['device']]['temp_download'] > $max_download_byte) {
+				$max_download_byte = $datasets[$value['device']]['temp_download'];
+			}
+
+			// 仮トラフィック量を初期化
+			$datasets[$value['device']]['temp_upload'] = 0;
+			$datasets[$value['device']]['temp_download'] = 0;
+
+			array_push($add_device, $value['device']);
+			$cnt = 0;
+		}
+
+		if (substr($value['date'], -2, 2) === "50" AND $cnt === 0) {
+			// print_r($add_device);
+			foreach ($device_list as $device_key => $device_value) {
+				if (in_array($device_value['device'], $add_device) == "") {
+					// print_r($device_value['device']);
+					// print_r(in_array($device_value['device'], $add_device));
+					// echo "-1 ";
+					$datasets[$device_value['device']]['upload'] = '0,'.$datasets[$device_value['device']]['upload'];
+					$datasets[$device_value['device']]['download'] = '0,'.$datasets[$device_value['device']]['download'];					
+				}
+			}
+			$add_device = array();
+			$cnt++;
 		}
 
 
@@ -123,10 +156,12 @@
 	// データセット作成
 	$make_datasets = "";
 	foreach ($datasets as $key => $value) {
-		$zero_check = explode(",", $value['download']);
-		if (count($zero_check)-1 === array_count_values($zero_check)[0]) {
-			continue;
-		}
+		// $zero_check = explode(",", $value['download']);
+		// $zero = array_count_values($zero_check);
+
+		// if (count($zero_check)-1 === $zero[0]) {
+		// 	continue;
+		// }
 		
 
 		$make_datasets = $make_datasets."
@@ -165,6 +200,27 @@
 	$sum_sql = $pdo->prepare('SELECT device,SUM(upload) as upload,SUM(download) as download FROM log GROUP BY device');
 	$sum_sql->execute();
 	$sum = $sum_sql->fetchAll(PDO::FETCH_ASSOC);
+
+
+	// 今日の合計
+	$sum_day_sql = $pdo->prepare('SELECT SUM(upload) as upload,SUM(download) as download FROM log WHERE date LIKE ?');
+	$sum_day_sql->execute([$date_day."%"]);
+	$sum_day_result = $sum_day_sql->fetchAll(PDO::FETCH_ASSOC)[0];
+	$sum_day = ['upload'=>byte_format($sum_day_result['upload'], 0, true), 'download'=>byte_format($sum_day_result['download'], 0, true)];
+
+
+	// 今月の合計
+	$sum_month_sql = $pdo->prepare('SELECT SUM(upload) as upload,SUM(download) as download FROM log WHERE date LIKE ?');
+	$sum_month_sql->execute([$date_month."%"]);
+	$sum_month_result = $sum_month_sql->fetchAll(PDO::FETCH_ASSOC)[0];
+	$sum_month = ['upload'=>byte_format($sum_month_result['upload'], 0, true), 'download'=>byte_format($sum_month_result['download'], 0, true)];
+
+
+	// 累計
+	$sum_all_sql = $pdo->prepare('SELECT SUM(upload) as upload,SUM(download) as download FROM log');
+	$sum_all_sql->execute();
+	$sum_all_result = $sum_all_sql->fetchAll(PDO::FETCH_ASSOC)[0];
+	$sum_all = ['upload'=>byte_format($sum_all_result['upload'], 0, true), 'download'=>byte_format($sum_all_result['download'], 0, true)];
 
 
 	$traffic_list = [];
@@ -288,15 +344,15 @@
 		<div class="my-2">
 			<canvas id="trafficChart" height="80px"></canvas>
 		</div>
-		<div class="pt-1 pb-3"><hr color="#00f" class="pt-1 bg-primary"></div>
+		<div class="pt-1"><hr color="#00f" class="pt-1 my-1 bg-primary"></div>
 	
 
 		<!-- 表を出力 -->
 		<?php
-			echo "<table class=\"table table-hover\">\n";
+			echo "<table class=\"table table-hover pt-1 mb-1\">\n";
 			echo "\t\t<thead>\n";
-			echo "\t\t\t<tr align=\"center\" style=\"font-size: 2em; font-weight: bold;\">\n\t\t\t\t<th rowspan=\"2\" style=\"vertical-align: middle;\">機器名</th>\n\t\t\t\t<td colspan=\"2\" style=\"padding: 2 0 0 0;\">今日</td>\n\t\t\t\t<td colspan=\"2\" style=\"padding: 2 0 0 0;\">今月</td>\n\t\t\t\t<td colspan=\"2\" style=\"padding: 2 0 0 0;\">累計</td>\n\t\t\t</tr>\n";
-			echo "\t\t\t<tr align=\"center\">\n\t\t\t\t<th>アップロード</th>\n\t\t\t\t<th>ダウンロード</th>\n\t\t\t\t<th>アップロード</th>\n\t\t\t\t<th>ダウンロード</th>\n\t\t\t\t<th>アップロード</th>\n\t\t\t\t<th>ダウンロード</th>\n\t\t\t</tr>\n";
+			echo "\t\t\t<tr align=\"center\" style=\"font-size: 2em; font-weight: bold;\">\n\t\t\t\t<th class=\"border-right-0 border-left-0 border-top-0 border-secondary\" rowspan=\"2\" style=\"vertical-align: middle; border: 3px solid;\">機器名</th>\n\t\t\t\t<td class=\"border-top-0\" colspan=\"2\" style=\"padding: 2 0 0 0;\">今日</td>\n\t\t\t\t<td class=\"border-top-0\" colspan=\"2\" style=\"padding: 2 0 0 0;\">今月</td>\n\t\t\t\t<td class=\"border-top-0\" colspan=\"2\" style=\"padding: 2 0 0 0;\">累計</td>\n\t\t\t</tr>\n";
+			echo "\t\t\t<tr align=\"center\" class=\"border-right-0 border-left-0 border-top-0 border-secondary\" style=\"border: 3px solid;\">\n\t\t\t\t<th>アップロード</th>\n\t\t\t\t<th>ダウンロード</th>\n\t\t\t\t<th>アップロード</th>\n\t\t\t\t<th>ダウンロード</th>\n\t\t\t\t<th>アップロード</th>\n\t\t\t\t<th>ダウンロード</th>\n\t\t\t</tr>\n";
 			echo "\t\t</thead>\n";
 			echo "\t\t<tbody align=\"right\">\n";
 
@@ -305,11 +361,13 @@
 				echo "\t\t\t<tr>\n\t\t\t\t<th class=\"align-middle p-3\">".$value['device']."</th>\n\t\t\t\t<td class=\"align-middle p-3\">".$value['day_upload']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$value['day_download']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$value['month_upload']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$value['month_download']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$value['sum_upload']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$value['sum_download']."</td>\n\t\t\t</tr>\n";
 			}
 
+			echo "\t\t\t<tr class=\"border-right-0 border-left-0 border-bottom-0 border-secondary\" style=\"border: 3px solid; font-weight: bold;\">\n\t\t\t\t<th class=\"align-middle p-3\" style=\"font-size: 1.4em;\">合計</th>\n\t\t\t\t<td class=\"align-middle p-3\">".$sum_day['upload']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$sum_day['download']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$sum_month['upload']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$sum_month['download']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$sum_all['upload']."</td>\n\t\t\t\t<td class=\"align-middle p-3\">".$sum_all['download']."</td>\n\t\t\t</tr>\n";
+
 			echo "\t\t</tbody>\n";
 			echo "\t</table>\n";
 		?>
 
-		<div class="pb-3"><hr color="#00f" class="pt-1 bg-primary"></div>
+		<div class="pb-3"><hr color="#00f" class="pt-1 my-1 bg-primary"></div>
 	</div>
 	</div>
 
