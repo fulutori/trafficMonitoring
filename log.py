@@ -13,10 +13,15 @@ device_cursor = device_conn.cursor()
 
 
 def get_log():
-	traffic_cursor.execute('SELECT * FROM log')
+	# sql = 'SELECT date, SUM(upload) as upload,SUM(download) as download FROM log WHERE date LIKE ?'
+	# traffic_cursor.execute(sql, ["{}%".format(20200514)])
+
+	sql = 'SELECT * FROM log'
+	traffic_cursor.execute(sql)
 
 	for traffic in traffic_cursor.fetchall():
 		print('{}\t{}\t{}'.format(traffic[0], traffic[1], traffic[2]))
+		# print('{}\t{}'.format(traffic[0], traffic[1]))
 
 
 if __name__ == '__main__':
