@@ -36,7 +36,7 @@
 	$log_date = strtotime(substr($temp_date, 0, 4)."-".substr($temp_date, 4, 2)."-".substr($temp_date, 6, 2)." ".substr($temp_date, 8, 2).":".substr($temp_date, 10, 2));
 	$update_date = strtotime('+10 minute' , $log_date);
 	$last_date = date("Y年m月d日H時i分", $update_date);
-	$ago1day = strtotime('-1 day' , $log_date);
+	$ago1day = strtotime('-1 day +1 hour' , $log_date);
 	$yesterday = date("YmdHi", $ago1day);
 	// echo $yesterday."<br>";
 
@@ -71,117 +71,91 @@
 	$data_sql = $pdo->prepare('SELECT date, device, sum(upload) as upload, sum(download) as download FROM log WHERE date > ? GROUP BY date, device ORDER BY date DESC');
 	$data_sql->execute([$yesterday]);
 	$data_list = $data_sql->fetchAll(PDO::FETCH_ASSOC);
-	// print_r($data_list);
 
 
-	// データセット初期化
+	// データセット作成
 	$datasets = array();
 	foreach ($device_list as $key => $value) {
-		$datasets[$value['device']] = ['temp_upload'=>0, 'temp_download'=>0, 'upload'=>'', 'download'=>'', 'sum'=>0];
+		for ($hour=0; $hour<24; $hour++) {
+			$datasets[$value['device']][$hour] = ['upload'=>0, 'download'=>0];
+		}
 	}
 
+
+	// 機器ごとの時間別トラフィック量を加算
+	foreach ($data_list as $key => $value) {
+		$hour = intval(substr($value['date'], 8, 2));
+		$datasets[$value['device']][$hour]['upload'] += $value['upload'];
+		$datasets[$value['device']][$hour]['download'] += $value['download'];
+	}
+
+
+	// 時系列順にグラフ描画用のデータセットを動的に作成
+	$make_datasets = "";
 	$max_upload_byte = 0;
 	$max_download_byte = 0;
 	$max_sum_byte = 0;
-	$cnt = 0;
-	$add_device = array();
-	foreach ($data_list as $key => $value) {
-		// ラベル作成
-		// echo $value['device']." : ".$value['date']." : ".$value['download']."<br>";
-		// print_r($value);
-		if (substr($value['date'], -2, 2) == "00") {
-			if ($datasets[$value['device']]['temp_download'] < 1048576) {
+	$text_datasets = array();
+	$temp_labels = explode(",", $labels);
+	foreach ($device_list as $device_key => $device_value) {
+		$device_data = "";
+		foreach ($temp_labels as $key => $hour) {
+			$hour_upload_data = $datasets[$device_value['device']][intval($hour)]['upload'];
+			$hour_download_data = $datasets[$device_value['device']][intval($hour)]['download'];
+
+			$border = 1048576; // MB
+			if ($hour_download_data < $border) {
 				$decimal = 2;
 			} else {
 				$decimal = 1;
 			}
 
-			// 1時間ごとのアップロード、ダウンロードサイズを取得
-			$datasets[$value['device']]['upload'] = round($datasets[$value['device']]['temp_upload'] / 1048576, $decimal).','.$datasets[$value['device']]['upload'];
-			$datasets[$value['device']]['download'] = round($datasets[$value['device']]['temp_download'] / 1048576, $decimal).','.$datasets[$value['device']]['download'];
-			
-			// echo $value['date']." | ".$value['device']." : ".byte_format($datasets[$value['device']]['temp_download'], 0, true)."<br>";
-
-
-			// アップロードとダウンロードの合計
-			$datasets[$value['device']]['sum'] = round(($datasets[$value['device']]['temp_upload']+$datasets[$value['device']]['temp_download']) / 1048576, $decimal).','.$datasets[$value['device']]['sum'];
+			if ($device_data === "") {
+				$device_data = round($hour_download_data / $border, $decimal);
+			} else {
+				$device_data = $device_data.','.round($hour_download_data / $border, $decimal);				
+			}
 
 			// 最大合計サイズ取得
-			if ($datasets[$value['device']]['temp_upload']+$datasets[$value['device']]['temp_download'] > $max_sum_byte) {
-				$max_sum_byte = $datasets[$value['device']]['temp_upload']+$datasets[$value['device']]['temp_download'];
+			if ($hour_upload_data+$hour_download_data > $max_sum_byte) {
+				$max_sum_byte = $hour_upload_data + $hour_download_data;
 			}
 
 			// 最大アップロードサイズ取得
-			if ($datasets[$value['device']]['temp_upload'] > $max_upload_byte) {
-				$max_upload_byte = $datasets[$value['device']]['temp_upload'];
+			if ($hour_upload_data > $max_upload_byte) {
+				$max_upload_byte = $hour_upload_data;
 			}
 
 			// 最大ダウンロードサイズ取得
-			if ($datasets[$value['device']]['temp_download'] > $max_download_byte) {
-				$max_download_byte = $datasets[$value['device']]['temp_download'];
+			if ($hour_download_data > $max_download_byte) {
+				$max_download_byte = $hour_download_data;
 			}
-
-			// 仮トラフィック量を初期化
-			$datasets[$value['device']]['temp_upload'] = 0;
-			$datasets[$value['device']]['temp_download'] = 0;
-
-			array_push($add_device, $value['device']);
-			$cnt = 0;
 		}
-
-		if (substr($value['date'], -2, 2) === "50" AND $cnt === 0) {
-			// print_r($add_device);
-			foreach ($device_list as $device_key => $device_value) {
-				if (in_array($device_value['device'], $add_device) == "") {
-					// print_r($device_value['device']);
-					// print_r(in_array($device_value['device'], $add_device));
-					// echo "-1 ";
-					$datasets[$device_value['device']]['upload'] = '0,'.$datasets[$device_value['device']]['upload'];
-					$datasets[$device_value['device']]['download'] = '0,'.$datasets[$device_value['device']]['download'];					
-				}
-			}
-			$add_device = array();
-			$cnt++;
-		}
-
-
-		$datasets[$value['device']]['temp_upload'] = $datasets[$value['device']]['temp_upload']+$value['upload'];
-		$datasets[$value['device']]['temp_download'] = $datasets[$value['device']]['temp_download']+$value['download'];
-	}
-	// print_r($datasets);
-	
-	// 最大単位取得
-	$max_unit = "\"".substr(byte_format($max_upload_byte, 0, true), -2, 2)."\"";
-
-	// データセット作成
-	$make_datasets = "";
-	foreach ($datasets as $key => $value) {
-		// $zero_check = explode(",", $value['download']);
-		// $zero = array_count_values($zero_check);
-
-		// if (count($zero_check)-1 === $zero[0]) {
-		// 	continue;
-		// }
-		
+		// echo $device_value['device']." : ".$device_data."<br>";
 
 		$make_datasets = $make_datasets."
 		{
-		 	label: '".$key."',
-		 	data: [".$value['download']."],
-		 	borderColor: \"rgba(".$device_color[$key].", 1)\",
-		 	backgroundColor: \"rgba(".$device_color[$key].", 0.3)\",
+		 	label: '".$device_value['device']."',
+		 	data: [".$device_data."],
+		 	borderColor: \"rgba(".$device_color[$device_value['device']].", 1)\",
+		 	backgroundColor: \"rgba(".$device_color[$device_value['device']].", 0.3)\",
 		},";
 	}
+	// print_r($datasets);
 	
 
 	// 最大値取得
-	$max_upload_byte = byte_format($max_upload_byte, 0, true, true);
-	$max_download_byte = byte_format($max_download_byte, 0, true, true);
-	$max_sum_byte = byte_format($max_sum_byte, 0, true, true);
+	$max_upload_format = byte_format($max_upload_byte, 0, true, true);
+	$max_download_format = byte_format($max_download_byte, 0, true, true);
+	$max_sum_format = byte_format($max_sum_byte, 0, true, true);
 	
 
+	// 最大単位取得
+	$max_unit = "\"".substr(byte_format($max_upload_byte, 0, true), -2, 2)."\"";
+
+
 	// y軸のステップ数
-	$step = round($max_download_byte / 7, 0);
+	$step = round($max_download_format / 7, 0);
 
 
 	// 端末ごとの合計：今日
